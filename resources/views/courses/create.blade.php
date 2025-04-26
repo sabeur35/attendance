@@ -22,7 +22,7 @@
                         </div>
                         
                         <div class="mb-3">
-                            <label for="name" class="form-label">Course Name</label>
+                            <label for="name" class="form-label">NOM DU MODULE</label>
                             <input type="text" class="form-control @error('name') is-invalid @enderror" 
                                 id="name" name="name" value="{{ old('name') }}" required>
                             @error('name')
