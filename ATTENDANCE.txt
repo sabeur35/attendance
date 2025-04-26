@@ -1,0 +1,2191 @@
+<?php
+// This is the Laravel Student Attendance System with QR Code, Location and MAC Address Verification
+
+/*
+Project Structure:
+- Laravel backend with MySQL database
+- Bootstrap frontend
+- QR code generation and scanning
+- Geolocation tracking
+- MAC address verification
+- Authentication system
+*/
+
+/* INSTALLATION INSTRUCTIONS 
+
+1. Prerequisites:
+   - PHP >= 8.1
+   - Composer
+   - MySQL
+   - Node.js and NPM
+
+2. Create a new Laravel project:
+   $ composer create-project laravel/laravel attendance-system
+   $ cd attendance-system
+
+3. Install required packages:
+   $ composer require simplesoftwareio/simple-qrcode
+   $ composer require laravel/ui
+   $ php artisan ui bootstrap --auth
+   $ npm install
+   $ npm run dev
+
+4. Configure database in .env:
+   DB_CONNECTION=mysql
+   DB_HOST=127.0.0.1
+   DB_PORT=3306
+   DB_DATABASE=attendance_system
+   DB_USERNAME=root
+   DB_PASSWORD=
+
+5. Run migrations:
+   $ php artisan migrate
+
+6. Follow the file structure and code samples below
+*/
+
+// DATABASE MIGRATIONS
+
+// database/migrations/xxxx_xx_xx_create_courses_table.php
+class CreateCoursesTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('courses', function (Blueprint $table) {
+            $table->id();
+            $table->string('code');
+            $table->string('name');
+            $table->text('description')->nullable();
+            $table->foreignId('teacher_id')->constrained('users');
+            $table->timestamps();
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('courses');
+    }
+}
+
+// database/migrations/xxxx_xx_xx_create_class_sessions_table.php
+class CreateClassSessionsTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('class_sessions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('course_id')->constrained();
+            $table->dateTime('start_time');
+            $table->dateTime('end_time');
+            $table->string('qr_code_secret');
+            $table->decimal('latitude', 10, 7);
+            $table->decimal('longitude', 10, 7);
+            $table->integer('radius_meters')->default(100);
+            $table->timestamps();
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('class_sessions');
+    }
+}
+
+// database/migrations/xxxx_xx_xx_create_student_course_table.php
+class CreateStudentCourseTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('student_course', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained();
+            $table->foreignId('course_id')->constrained();
+            $table->timestamps();
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('student_course');
+    }
+}
+
+// database/migrations/xxxx_xx_xx_create_attendances_table.php
+class CreateAttendancesTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('attendances', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained();
+            $table->foreignId('class_session_id')->constrained();
+            $table->dateTime('check_in_time');
+            $table->string('mac_address');
+            $table->decimal('latitude', 10, 7);
+            $table->decimal('longitude', 10, 7);
+            $table->boolean('is_verified')->default(false);
+            $table->string('verification_message')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('attendances');
+    }
+}
+
+// database/migrations/xxxx_xx_xx_create_user_devices_table.php
+class CreateUserDevicesTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('user_devices', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained();
+            $table->string('mac_address');
+            $table->string('device_name')->nullable();
+            $table->boolean('is_verified')->default(false);
+            $table->dateTime('verified_at')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('user_devices');
+    }
+}
+
+// MODELS
+
+// app/Models/User.php
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+
+class User extends Authenticatable
+{
+    use HasApiTokens, Notifiable;
+
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'role', // 'admin', 'teacher', 'student'
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+    ];
+
+    public function courses()
+    {
+        return $this->belongsToMany(Course::class, 'student_course');
+    }
+
+    public function taughtCourses()
+    {
+        return $this->hasMany(Course::class, 'teacher_id');
+    }
+
+    public function attendances()
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
+    public function devices()
+    {
+        return $this->hasMany(UserDevice::class);
+    }
+}
+
+// app/Models/Course.php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Course extends Model
+{
+    protected $fillable = [
+        'code',
+        'name',
+        'description',
+        'teacher_id',
+    ];
+
+    public function teacher()
+    {
+        return $this->belongsTo(User::class, 'teacher_id');
+    }
+
+    public function students()
+    {
+        return $this->belongsToMany(User::class, 'student_course');
+    }
+
+    public function sessions()
+    {
+        return $this->hasMany(ClassSession::class);
+    }
+}
+
+// app/Models/ClassSession.php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class ClassSession extends Model
+{
+    protected $fillable = [
+        'course_id',
+        'start_time',
+        'end_time',
+        'qr_code_secret',
+        'latitude',
+        'longitude',
+        'radius_meters',
+    ];
+
+    protected $casts = [
+        'start_time' => 'datetime',
+        'end_time' => 'datetime',
+    ];
+
+    public function course()
+    {
+        return $this->belongsTo(Course::class);
+    }
+
+    public function attendances()
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
+    public function generateQrCodeSecret()
+    {
+        $this->qr_code_secret = md5($this->id . time() . rand(1000, 9999));
+        $this->save();
+        
+        return $this->qr_code_secret;
+    }
+
+    public function getQrCodeUrl()
+    {
+        return url('/attend/' . $this->qr_code_secret);
+    }
+}
+
+// app/Models/Attendance.php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Attendance extends Model
+{
+    protected $fillable = [
+        'user_id',
+        'class_session_id',
+        'check_in_time',
+        'mac_address',
+        'latitude',
+        'longitude',
+        'is_verified',
+        'verification_message',
+    ];
+
+    protected $casts = [
+        'check_in_time' => 'datetime',
+        'is_verified' => 'boolean',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function classSession()
+    {
+        return $this->belongsTo(ClassSession::class);
+    }
+
+    public function verifyAttendance()
+    {
+        $valid = true;
+        $messages = [];
+        
+        // Check if the student is registered for this course
+        $student = $this->user;
+        $course = $this->classSession->course;
+        
+        if (!$student->courses->contains($course->id)) {
+            $valid = false;
+            $messages[] = 'Student not registered for this course.';
+        }
+        
+        // Check if MAC address is registered for the student
+        $registeredDevice = UserDevice::where('user_id', $this->user_id)
+            ->where('mac_address', $this->mac_address)
+            ->where('is_verified', true)
+            ->first();
+            
+        if (!$registeredDevice) {
+            $valid = false;
+            $messages[] = 'Unregistered or unverified device used.';
+        }
+        
+        // Check location proximity
+        $session = $this->classSession;
+        $distance = $this->calculateDistance(
+            $session->latitude, 
+            $session->longitude, 
+            $this->latitude, 
+            $this->longitude
+        );
+        
+        if ($distance > $session->radius_meters) {
+            $valid = false;
+            $messages[] = 'Location verification failed. Too far from class.';
+        }
+        
+        // Check time
+        $now = now();
+        if ($now->lt($session->start_time) || $now->gt($session->end_time->addMinutes(15))) {
+            $valid = false;
+            $messages[] = 'Time verification failed. Not within class session time.';
+        }
+        
+        $this->is_verified = $valid;
+        $this->verification_message = implode(' ', $messages);
+        $this->save();
+        
+        return $valid;
+    }
+    
+    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        // Haversine formula to calculate distance between two points
+        $earthRadius = 6371000; // in meters
+        
+        $latFrom = deg2rad($lat1);
+        $lonFrom = deg2rad($lon1);
+        $latTo = deg2rad($lat2);
+        $lonTo = deg2rad($lon2);
+        
+        $latDelta = $latTo - $latFrom;
+        $lonDelta = $lonTo - $lonFrom;
+        
+        $angle = 2 * asin(sqrt(pow(sin($latDelta / 2), 2) + cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)));
+        
+        return $angle * $earthRadius;
+    }
+}
+
+// app/Models/UserDevice.php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class UserDevice extends Model
+{
+    protected $fillable = [
+        'user_id',
+        'mac_address',
+        'device_name',
+        'is_verified',
+        'verified_at',
+    ];
+
+    protected $casts = [
+        'is_verified' => 'boolean',
+        'verified_at' => 'datetime',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+}
+
+// CONTROLLERS
+
+// app/Http/Controllers/ClassSessionController.php
+namespace App\Http\Controllers;
+
+use App\Models\ClassSession;
+use App\Models\Course;
+use Illuminate\Http\Request;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
+
+class ClassSessionController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('auth');
+        $this->middleware('role:teacher,admin')->except(['show', 'attend']);
+    }
+    
+    public function index(Course $course)
+    {
+        $this->authorize('view', $course);
+        
+        $sessions = $course->sessions()->orderBy('start_time', 'desc')->paginate(10);
+        
+        return view('sessions.index', compact('course', 'sessions'));
+    }
+    
+    public function create(Course $course)
+    {
+        $this->authorize('update', $course);
+        
+        return view('sessions.create', compact('course'));
+    }
+    
+    public function store(Request $request, Course $course)
+    {
+        $this->authorize('update', $course);
+        
+        $validated = $request->validate([
+            'start_time' => 'required|date',
+            'end_time' => 'required|date|after:start_time',
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+            'radius_meters' => 'required|integer|min:10|max:1000',
+        ]);
+        
+        $session = $course->sessions()->create([
+            'start_time' => $validated['start_time'],
+            'end_time' => $validated['end_time'],
+            'latitude' => $validated['latitude'],
+            'longitude' => $validated['longitude'],
+            'radius_meters' => $validated['radius_meters'],
+            'qr_code_secret' => md5($course->id . time() . rand(1000, 9999)),
+        ]);
+        
+        return redirect()->route('courses.sessions.show', [$course, $session])
+            ->with('success', 'Class session created successfully');
+    }
+    
+    public function show(Course $course, ClassSession $session)
+    {
+        if (auth()->user()->role === 'student') {
+            $this->authorize('attend', $course);
+        } else {
+            $this->authorize('view', $course);
+        }
+        
+        $qrCode = QrCode::size(300)->generate($session->getQrCodeUrl());
+        $attendances = $session->attendances()->with('user')->get();
+        
+        return view('sessions.show', compact('course', 'session', 'qrCode', 'attendances'));
+    }
+    
+    public function attend($secret)
+    {
+        $session = ClassSession::where('qr_code_secret', $secret)->firstOrFail();
+        
+        if (auth()->user()->role !== 'student') {
+            return redirect()->route('courses.sessions.show', [$session->course_id, $session->id]);
+        }
+        
+        return view('sessions.attend', compact('session'));
+    }
+}
+
+// app/Http/Controllers/AttendanceController.php
+namespace App\Http\Controllers;
+
+use App\Models\Attendance;
+use App\Models\ClassSession;
+use Illuminate\Http\Request;
+
+class AttendanceController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('auth');
+        $this->middleware('role:student')->only(['store']);
+    }
+    
+    public function store(Request $request, ClassSession $session)
+    {
+        $student = auth()->user();
+        
+        // Validate request
+        $validated = $request->validate([
+            'mac_address' => 'required|string|max:255',
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+        ]);
+        
+        // Check if already attended
+        $existingAttendance = Attendance::where('user_id', $student->id)
+            ->where('class_session_id', $session->id)
+            ->first();
+            
+        if ($existingAttendance) {
+            return redirect()->back()->with('error', 'You have already checked in to this session.');
+        }
+        
+        // Create attendance record
+        $attendance = Attendance::create([
+            'user_id' => $student->id,
+            'class_session_id' => $session->id,
+            'check_in_time' => now(),
+            'mac_address' => $validated['mac_address'],
+            'latitude' => $validated['latitude'],
+            'longitude' => $validated['longitude'],
+        ]);
+        
+        // Verify attendance
+        $isVerified = $attendance->verifyAttendance();
+        
+        if ($isVerified) {
+            return redirect()->route('courses.show', $session->course_id)
+                ->with('success', 'Attendance recorded successfully.');
+        } else {
+            return redirect()->route('courses.show', $session->course_id)
+                ->with('warning', 'Attendance recorded but verification failed: ' . $attendance->verification_message);
+        }
+    }
+    
+    public function index(ClassSession $session)
+    {
+        $this->authorize('viewAttendance', $session->course);
+        
+        $attendances = $session->attendances()
+            ->with('user')
+            ->orderBy('check_in_time')
+            ->paginate(20);
+            
+        return view('attendances.index', compact('session', 'attendances'));
+    }
+}
+
+// app/Http/Controllers/UserDeviceController.php
+namespace App\Http\Controllers;
+
+use App\Models\UserDevice;
+use Illuminate\Http\Request;
+
+class UserDeviceController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('auth');
+    }
+    
+    public function index()
+    {
+        $devices = auth()->user()->devices;
+        
+        return view('devices.index', compact('devices'));
+    }
+    
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'mac_address' => 'required|string|max:255',
+            'device_name' => 'required|string|max:255',
+        ]);
+        
+        // Check if device already exists
+        $existingDevice = UserDevice::where('mac_address', $validated['mac_address'])
+            ->where('user_id', '!=', auth()->id())
+            ->first();
+            
+        if ($existingDevice) {
+            return redirect()->back()->with('error', 'This MAC address is already registered to another user.');
+        }
+        
+        $device = auth()->user()->devices()->updateOrCreate(
+            ['mac_address' => $validated['mac_address']],
+            [
+                'device_name' => $validated['device_name'],
+                'is_verified' => true,
+                'verified_at' => now(),
+            ]
+        );
+        
+        return redirect()->route('devices.index')
+            ->with('success', 'Device registered successfully.');
+    }
+    
+    public function destroy(UserDevice $device)
+    {
+        if ($device->user_id !== auth()->id()) {
+            abort(403);
+        }
+        
+        $device->delete();
+        
+        return redirect()->route('devices.index')
+            ->with('success', 'Device removed successfully.');
+    }
+}
+
+// app/Http/Controllers/CourseController.php
+namespace App\Http\Controllers;
+
+use App\Models\Course;
+use App\Models\User;
+use Illuminate\Http\Request;
+
+class CourseController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('auth');
+        $this->middleware('role:teacher,admin')->except(['index', 'show']);
+    }
+    
+    public function index()
+    {
+        if (auth()->user()->role === 'student') {
+            $courses = auth()->user()->courses()->paginate(10);
+        } elseif (auth()->user()->role === 'teacher') {
+            $courses = auth()->user()->taughtCourses()->paginate(10);
+        } else {
+            $courses = Course::paginate(10);
+        }
+        
+        return view('courses.index', compact('courses'));
+    }
+    
+    public function create()
+    {
+        $teachers = User::where('role', 'teacher')->get();
+        
+        return view('courses.create', compact('teachers'));
+    }
+    
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'code' => 'required|string|max:20|unique:courses',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'teacher_id' => 'required|exists:users,id',
+        ]);
+        
+        $course = Course::create($validated);
+        
+        return redirect()->route('courses.show', $course)
+            ->with('success', 'Course created successfully');
+    }
+    
+    public function show(Course $course)
+    {
+        if (auth()->user()->role === 'student') {
+            $this->authorize('attend', $course);
+        }
+        
+        $sessions = $course->sessions()
+            ->orderBy('start_time', 'desc')
+            ->paginate(5);
+            
+        $students = $course->students()->paginate(20);
+        
+        return view('courses.show', compact('course', 'sessions', 'students'));
+    }
+    
+    public function edit(Course $course)
+    {
+        $this->authorize('update', $course);
+        
+        $teachers = User::where('role', 'teacher')->get();
+        
+        return view('courses.edit', compact('course', 'teachers'));
+    }
+    
+    public function update(Request $request, Course $course)
+    {
+        $this->authorize('update', $course);
+        
+        $validated = $request->validate([
+            'code' => 'required|string|max:20|unique:courses,code,' . $course->id,
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'teacher_id' => 'required|exists:users,id',
+        ]);
+        
+        $course->update($validated);
+        
+        return redirect()->route('courses.show', $course)
+            ->with('success', 'Course updated successfully');
+    }
+    
+    public function destroy(Course $course)
+    {
+        $this->authorize('delete', $course);
+        
+        $course->delete();
+        
+        return redirect()->route('courses.index')
+            ->with('success', 'Course deleted successfully');
+    }
+    
+    public function addStudent(Request $request, Course $course)
+    {
+        $this->authorize('update', $course);
+        
+        $validated = $request->validate([
+            'student_id' => 'required|exists:users,id',
+        ]);
+        
+        $student = User::findOrFail($validated['student_id']);
+        
+        if ($student->role !== 'student') {
+            return redirect()->back()->with('error', 'Selected user is not a student');
+        }
+        
+        $course->students()->syncWithoutDetaching([$student->id]);
+        
+        return redirect()->route('courses.show', $course)
+            ->with('success', 'Student added to course');
+    }
+    
+    public function removeStudent(Course $course, User $student)
+    {
+        $this->authorize('update', $course);
+        
+        $course->students()->detach($student->id);
+        
+        return redirect()->route('courses.show', $course)
+            ->with('success', 'Student removed from course');
+    }
+}
+
+// VIEWS - BLADE TEMPLATES
+
+// resources/views/layouts/app.blade.php
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{{ config('app.name', 'Attendance System') }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    @yield('styles')
+</head>
+<body>
+    <nav class="navbar navbar-expand-md navbar-dark bg-primary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url('/') }}">{{ config('app.name', 'Attendance System') }}</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarCollapse">
+                <ul class="navbar-nav me-auto mb-2 mb-md-0">
+                    @auth
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ route('courses.index') }}">Courses</a>
+                        </li>
+                        @if(auth()->user()->role === 'student')
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ route('devices.index') }}">My Devices</a>
+                            </li>
+                        @endif
+                    @endauth
+                </ul>
+                <ul class="navbar-nav ms-auto mb-2 mb-md-0">
+                    @guest
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ route('login') }}">Login</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ route('register') }}">Register</a>
+                        </li>
+                    @else
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                                {{ Auth::user()->name }}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" href="{{ route('logout') }}"
+                                       onclick="event.preventDefault(); document.getElementById('logout-form').submit();">
+                                        Logout
+                                    </a>
+                                    <form id="logout-form" action="{{ route('logout') }}" method="POST" class="d-none">
+                                        @csrf
+                                    </form>
+                                </li>
+                            </ul>
+                        </li>
+                    @endguest
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container py-4">
+        @if(session('success'))
+            <div class="alert alert-success">
+                {{ session('success') }}
+            </div>
+        @endif
+        
+        @if(session('error'))
+            <div class="alert alert-danger">
+                {{ session('error') }}
+            </div>
+        @endif
+        
+        @if(session('warning'))
+            <div class="alert alert-warning">
+                {{ session('warning') }}
+            </div>
+        @endif
+        
+        @yield('content')
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    @yield('scripts')
+</body>
+</html>
+
+// resources/views/sessions/attend.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4>Check-in to Class Session</h4>
+                </div>
+                <div class="card-body">
+                    <h5>Course: {{ $session->course->name }} ({{ $session->course->code }})</h5>
+                    <p>Session Time: {{ $session->start_time->format('M d, Y - h:i A') }} to {{ $session->end_time->format('h:i A') }}</p>
+                    
+                    <form id="attendanceForm" action="{{ route('sessions.attend.store', $session) }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="mac_address" id="mac_address">
+                        <input type="hidden" name="latitude" id="latitude">
+                        <input type="hidden" name="longitude" id="longitude">
+                        
+                        <div class="mb-3" id="locationStatus">
+                            <div class="alert alert-info">
+                                Please allow location access to check in...
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3" id="macStatus">
+                            <div class="alert alert-info">
+                                Getting device information...
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success btn-lg" id="checkInBtn" disabled>
+                                Check In
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+@section('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        let locationReady = false;
+        let macReady = false;
+        
+        // Get location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    document.getElementById('latitude').value = position.coords.latitude;
+                    document.getElementById('longitude').value = position.coords.longitude;
+                    document.getElementById('locationStatus').innerHTML = 
+                        '<div class="alert alert-success">Location captured successfully!</div>';
+                    locationReady = true;
+                    checkReadiness();
+                },
+                function(error) {
+                    document.getElementById('locationStatus').innerHTML = 
+                        '<div class="alert alert-danger">Error getting location: ' + error.message + '</div>';
+                }
+            );
+        } else {
+            document.getElementById('locationStatus').innerHTML = 
+                '<div class="alert alert-danger">Geolocation is not supported by this browser.</div>';
+        }
+        
+        // Get MAC address using a simple client-side solution
+        // Note: In a real app, you'd want to use a more sophisticated approach
+        // as getting the actual MAC is restricted in browsers for privacy reasons
+        function getDeviceFingerprint() {
+            // This is a simplified approach - in production, use a library like Fingerprint.js
+            const userAgent = navigator.userAgent;
+            const screenPrint = screen.width + 'x' + screen.height + 'x' + screen.colorDepth;
+            const timezoneOffset = new Date().getTimezoneOffset();
+            
+            // Create a hash of these values to use as a device identifier
+            let deviceId = btoa(userAgent + screenPrint + timezoneOffset);
+            // Trim to a reasonable length and format to look like a MAC
+            deviceId = deviceId.replace(/[^a-zA-Z0-9]/g, '').substr(0, 12);
+            
+            // Format like a MAC address
+            return deviceId.match(/.{1,2}/g).join(':').toUpperCase();
+        }
+        
+        const macAddress = getDeviceFingerprint();
+        document.getElementById('mac_address').value = macAddress;
+        document.getElementById('macStatus').innerHTML = 
+            '<div class="alert alert-success">Device ID captured: ' + macAddress + '</div>';
+        macReady = true;
+        checkReadiness();
+        
+        function checkReadiness() {
+            if (locationReady && macReady) {
+                document.getElementById('checkInBtn').disabled = false;
+            }
+        }
+    });
+</script>
+@endsection
+
+// resources/views/sessions/show.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h2>{{ $course->name }} ({{ $course->code }})</h2>
+            <h4>Class Session: {{ $session->start_time->format('M d, Y - h:i A') }} to {{ $session->end_time->format('h:i A') }}</h4>
+            <a href="{{ route('courses.sessions.index', $course) }}" class="btn btn-secondary">Back to Sessions</a>
+        </div>
+    </div>
+
+    <div class="row">
+        @if(auth()->user()->role === 'teacher' || auth()->user()->role === 'admin')
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Attendance QR Code</h5>
+                </div>
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        {!! $qrCode !!}
+                    </div>
+                    <p class="mb-3">Session Time: {{ $session->start_time->format('M d, Y - h:i A') }} to {{ $session->end_time->format('h:i A') }}</p>
+                    <p>Have students scan this QR code to check in</p>
+                    <button class="btn btn-success" onclick="window.print()">Print QR Code</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Attendance Summary</h5>
+                </div>
+                <div class="card-body">
+                    <h6>Total Students: {{ $course->students->count() }}</h6>
+                    <h6>Checked In: {{ $attendances->count() }}</h6>
+                    <h6>Verified Attendances: {{ $attendances->where('is_verified', true)->count() }}</h6>
+                    
+                    <hr>
+                    
+                    <h6>Attendance List</h6>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Check-in Time</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($attendances as $attendance)
+                                <tr>
+                                    <td>{{ $attendance->user->name }}</td>
+                                    <td>{{ $attendance->check_in_time->format('h:i A') }}</td>
+                                    <td>
+                                        @if($attendance->is_verified)
+                                            <span class="badge bg-success">Verified</span>
+                                        @else
+                                            <span class="badge bg-danger" title="{{ $attendance->verification_message }}">Failed</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="3" class="text-center">No attendances recorded yet</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <a href="{{ route('sessions.attendances.index', $session) }}" class="btn btn-primary">
+                        View Full Attendance Details
+                    </a>
+                </div>
+            </div>
+        </div>
+        @else
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Attendance</h5>
+                </div>
+                <div class="card-body">
+                    @php
+                        $existingAttendance = $attendances->where('user_id', auth()->id())->first();
+                    @endphp
+                    
+                    @if($existingAttendance)
+                        <div class="alert alert-info">
+                            <h5>You have checked in to this session!</h5>
+                            <p>Check-in time: {{ $existingAttendance->check_in_time->format('M d, Y - h:i A') }}</p>
+                            <p>
+                                Status: 
+                                @if($existingAttendance->is_verified)
+                                    <span class="badge bg-success">Verified</span>
+                                @else
+                                    <span class="badge bg-danger">Verification Failed: {{ $existingAttendance->verification_message }}</span>
+                                @endif
+                            </p>
+                        </div>
+                    @else
+                        <p>You haven't checked in to this session yet.</p>
+                        <a href="{{ $session->getQrCodeUrl() }}" class="btn btn-success">Check In Now</a>
+                    @endif
+                </div>
+            </div>
+        </div>
+        @endif
+    </div>
+</div>
+@endsection
+
+// resources/views/sessions/create.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4>Create New Class Session</h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ route('courses.sessions.store', $course) }}">
+                        @csrf
+                        
+                        <div class="mb-3">
+                            <label for="start_time" class="form-label">Start Time</label>
+                            <input type="datetime-local" class="form-control @error('start_time') is-invalid @enderror" 
+                                id="start_time" name="start_time" value="{{ old('start_time') }}" required>
+                            @error('start_time')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="end_time" class="form-label">End Time</label>
+                            <input type="datetime-local" class="form-control @error('end_time') is-invalid @enderror" 
+                                id="end_time" name="end_time" value="{{ old('end_time') }}" required>
+                            @error('end_time')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Class Location</label>
+                            <p class="text-muted small">Click on the map to set the class location or use the current location button.</p>
+                            
+                            <div id="map" style="height: 300px;" class="mb-2 border rounded"></div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="latitude" class="form-label">Latitude</label>
+                                        <input type="text" class="form-control @error('latitude') is-invalid @enderror" 
+                                            id="latitude" name="latitude" value="{{ old('latitude') }}" required readonly>
+                                        @error('latitude')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="longitude" class="form-label">Longitude</label>
+                                        <input type="text" class="form-control @error('longitude') is-invalid @enderror" 
+                                            id="longitude" name="longitude" value="{{ old('longitude') }}" required readonly>
+                                        @error('longitude')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="radius_meters" class="form-label">Allowed Radius (meters)</label>
+                                <input type="number" class="form-control @error('radius_meters') is-invalid @enderror" 
+                                    id="radius_meters" name="radius_meters" value="{{ old('radius_meters', 100) }}" 
+                                    min="10" max="1000" required>
+                                <div class="form-text">Students must be within this radius of the class location to check in.</div>
+                                @error('radius_meters')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+                            
+                            <button type="button" id="useCurrentLocation" class="btn btn-outline-primary mb-3">
+                                <i class="bi bi-geo-alt"></i> Use Current Location
+                            </button>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">Create Session</button>
+                            <a href="{{ route('courses.sessions.index', $course) }}" class="btn btn-outline-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+@section('scripts')
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize the map
+        var map = L.map('map').setView([0, 0], 2);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        
+        var marker;
+        
+        // Handle map click
+        map.on('click', function(e) {
+            setMarkerPosition(e.latlng.lat, e.latlng.lng);
+        });
+        
+        // Handle "Use Current Location" button click
+        document.getElementById('useCurrentLocation').addEventListener('click', function() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    setMarkerPosition(position.coords.latitude, position.coords.longitude);
+                    map.setView([position.coords.latitude, position.coords.longitude], 15);
+                }, function(error) {
+                    alert('Error getting your location: ' + error.message);
+                });
+            } else {
+                alert('Geolocation is not supported by this browser.');
+            }
+        });
+        
+        function setMarkerPosition(lat, lng) {
+            document.getElementById('latitude').value = lat.toFixed(7);
+            document.getElementById('longitude').value = lng.toFixed(7);
+            
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+            } else {
+                marker = L.marker([lat, lng]).addTo(map);
+            }
+        }
+        
+        // If there are old values, set them
+        var oldLat = "{{ old('latitude') }}";
+        var oldLng = "{{ old('longitude') }}";
+        
+        if (oldLat && oldLng) {
+            setMarkerPosition(parseFloat(oldLat), parseFloat(oldLng));
+            map.setView([parseFloat(oldLat), parseFloat(oldLng)], 15);
+        } else if (navigator.geolocation) {
+            // Try to get user's current location as a starting point
+            navigator.geolocation.getCurrentPosition(function(position) {
+                setMarkerPosition(position.coords.latitude, position.coords.longitude);
+                map.setView([position.coords.latitude, position.coords.longitude], 15);
+            }, function() {
+                // On error, do nothing - map will stay at default view
+            });
+        }
+    });
+</script>
+@endsection
+
+// resources/views/sessions/index.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>{{ $course->name }} ({{ $course->code }})</h2>
+            <h4>Class Sessions</h4>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{{ route('courses.show', $course) }}" class="btn btn-secondary me-2">Back to Course</a>
+            @can('update', $course)
+            <a href="{{ route('courses.sessions.create', $course) }}" class="btn btn-primary">New Session</a>
+            @endcan
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Attendance</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($sessions as $session)
+                                <tr>
+                                    <td>{{ $session->start_time->format('M d, Y') }}</td>
+                                    <td>{{ $session->start_time->format('h:i A') }} - {{ $session->end_time->format('h:i A') }}</td>
+                                    <td>
+                                        @if(auth()->user()->role === 'student')
+                                            @php
+                                                $attended = $session->attendances->where('user_id', auth()->id())->first();
+                                            @endphp
+                                            @if($attended)
+                                                @if($attended->is_verified)
+                                                    <span class="badge bg-success">Present</span>
+                                                @else
+                                                    <span class="badge bg-warning text-dark">Present (Unverified)</span>
+                                                @endif
+                                            @else
+                                                <span class="badge bg-danger">Absent</span>
+                                            @endif
+                                        @else
+                                            {{ $session->attendances->count() }} / {{ $course->students->count() }}
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <a href="{{ route('courses.sessions.show', [$course, $session]) }}" class="btn btn-sm btn-info">View</a>
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="4" class="text-center">No sessions found</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {{ $sessions->links() }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+// resources/views/attendances/index.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h2>{{ $session->course->name }} ({{ $session->course->code }})</h2>
+            <h4>Attendance Details: {{ $session->start_time->format('M d, Y - h:i A') }}</h4>
+            <a href="{{ route('courses.sessions.show', [$session->course_id, $session]) }}" class="btn btn-secondary">Back to Session</a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Attendance List</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Student Name</th>
+                                    <th>Email</th>
+                                    <th>Check-in Time</th>
+                                    <th>Status</th>
+                                    <th>Device MAC</th>
+                                    <th>Location</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($attendances as $attendance)
+                                <tr>
+                                    <td>{{ $attendance->user->name }}</td>
+                                    <td>{{ $attendance->user->email }}</td>
+                                    <td>{{ $attendance->check_in_time->format('h:i:s A') }}</td>
+                                    <td>
+                                        @if($attendance->is_verified)
+                                            <span class="badge bg-success">Verified</span>
+                                        @else
+                                            <span class="badge bg-danger">Failed</span>
+                                            <span class="d-block small text-muted mt-1">{{ $attendance->verification_message }}</span>
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <small>{{ $attendance->mac_address }}</small>
+                                    </td>
+                                    <td>
+                                        <a href="https://www.google.com/maps?q={{ $attendance->latitude }},{{ $attendance->longitude }}" 
+                                           target="_blank" class="btn btn-sm btn-outline-secondary">
+                                            View Map
+                                        </a>
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="6" class="text-center">No attendance records found</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {{ $attendances->links() }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+// resources/views/devices/index.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4>My Registered Devices</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <p><strong>Important:</strong> You must register your devices to use them for attendance check-in. 
+                        Only registered devices will be accepted for attendance verification.</p>
+                    </div>
+                    
+                    <div class="table-responsive mb-4">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Device Name</th>
+                                    <th>MAC Address</th>
+                                    <th>Verified</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($devices as $device)
+                                <tr>
+                                    <td>{{ $device->device_name }}</td>
+                                    <td><small>{{ $device->mac_address }}</small></td>
+                                    <td>
+                                        @if($device->is_verified)
+                                            <span class="badge bg-success">Verified</span>
+                                        @else
+                                            <span class="badge bg-warning text-dark">Pending</span>
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <form action="{{ route('devices.destroy', $device) }}" method="POST" 
+                                              onsubmit="return confirm('Are you sure you want to remove this device?');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="4" class="text-center">No devices registered yet</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            <h5>Register New Device</h5>
+                        </div>
+                        <div class="card-body">
+                            <form action="{{ route('devices.store') }}" method="POST">
+                                @csrf
+                                
+                                <div class="mb-3">
+                                    <label for="device_name" class="form-label">Device Name</label>
+                                    <input type="text" class="form-control @error('device_name') is-invalid @enderror" 
+                                           id="device_name" name="device_name" required>
+                                    <div class="form-text">Enter a name to identify this device (e.g. "My Laptop", "iPhone 13")</div>
+                                    @error('device_name')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="mac_address" class="form-label">Device ID</label>
+                                    <input type="text" class="form-control @error('mac_address') is-invalid @enderror" 
+                                           id="mac_address" name="mac_address" readonly>
+                                    @error('mac_address')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                
+                                <button type="submit" class="btn btn-primary" id="registerBtn" disabled>Register Device</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+@section('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Function to generate a device fingerprint
+        function getDeviceFingerprint() {
+            const userAgent = navigator.userAgent;
+            const screenPrint = screen.width + 'x' + screen.height + 'x' + screen.colorDepth;
+            const timezoneOffset = new Date().getTimezoneOffset();
+            const lang = navigator.language;
+            const platform = navigator.platform;
+            
+            // Create a hash of these values to use as a device identifier
+            let deviceId = btoa(userAgent + screenPrint + timezoneOffset + lang + platform);
+            // Trim to a reasonable length and format to look like a MAC
+            deviceId = deviceId.replace(/[^a-zA-Z0-9]/g, '').substr(0, 12);
+            
+            // Format like a MAC address
+            return deviceId.match(/.{1,2}/g).join(':').toUpperCase();
+        }
+        
+        const macAddress = getDeviceFingerprint();
+        document.getElementById('mac_address').value = macAddress;
+        document.getElementById('registerBtn').disabled = false;
+    });
+</script>
+@endsection
+
+// resources/views/courses/index.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>Courses</h2>
+        </div>
+        <div class="col-md-4 text-end">
+            @if(auth()->user()->role === 'admin' || auth()->user()->role === 'teacher')
+            <a href="{{ route('courses.create') }}" class="btn btn-primary">Create New Course</a>
+            @endif
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Name</th>
+                                    <th>Teacher</th>
+                                    <th>Students</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($courses as $course)
+                                <tr>
+                                    <td>{{ $course->code }}</td>
+                                    <td>{{ $course->name }}</td>
+                                    <td>{{ $course->teacher->name }}</td>
+                                    <td>{{ $course->students->count() }}</td>
+                                    <td>
+                                        <a href="{{ route('courses.show', $course) }}" class="btn btn-sm btn-info">View</a>
+                                        @can('update', $course)
+                                        <a href="{{ route('courses.edit', $course) }}" class="btn btn-sm btn-warning">Edit</a>
+                                        @endcan
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="5" class="text-center">No courses found</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {{ $courses->links() }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+// resources/views/courses/show.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>{{ $course->name }} ({{ $course->code }})</h2>
+            <p class="lead">{{ $course->description }}</p>
+            <p><strong>Teacher:</strong> {{ $course->teacher->name }}</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{{ route('courses.index') }}" class="btn btn-secondary me-2">Back to Courses</a>
+            @can('update', $course)
+            <a href="{{ route('courses.edit', $course) }}" class="btn btn-warning">Edit Course</a>
+            @endcan
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Recent Class Sessions</h5>
+                    <div>
+                        @can('update', $course)
+                        <a href="{{ route('courses.sessions.create', $course) }}" class="btn btn-sm btn-light">New Session</a>
+                        @endcan
+                        <a href="{{ route('courses.sessions.index', $course) }}" class="btn btn-sm btn-outline-light">View All</a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Attendance</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($sessions as $session)
+                                <tr>
+                                    <td>{{ $session->start_time->format('M d, Y') }}</td>
+                                    <td>{{ $session->start_time->format('h:i A') }} - {{ $session->end_time->format('h:i A') }}</td>
+                                    <td>
+                                        @if(auth()->user()->role === 'student')
+                                            @php
+                                                $attended = $session->attendances->where('user_id', auth()->id())->first();
+                                            @endphp
+                                            @if($attended)
+                                                @if($attended->is_verified)
+                                                    <span class="badge bg-success">Present</span>
+                                                @else
+                                                    <span class="badge bg-warning text-dark">Present (Unverified)</span>
+                                                @endif
+                                            @else
+                                                <span class="badge bg-danger">Absent</span>
+                                            @endif
+                                        @else
+                                            {{ $session->attendances->count() }} / {{ $course->students->count() }}
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <a href="{{ route('courses.sessions.show', [$course, $session]) }}" class="btn btn-sm btn-info">View</a>
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="4" class="text-center">No sessions found</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @can('update', $course)
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Enrolled Students</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ route('courses.add-student', $course) }}" method="POST" class="mb-4">
+                        @csrf
+                        <div class="input-group">
+                            <select name="student_id" class="form-select" required>
+                                <option value="">Select a student to add...</option>
+                                @foreach(App\Models\User::where('role', 'student')->whereDoesntHave('courses', function($query) use ($course) {
+                                    $query->where('course_id', $course->id);
+                                })->get() as $student)
+                                    <option value="{{ $student->id }}">{{ $student->name }} ({{ $student->email }})</option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="btn btn-outline-primary">Add Student</button>
+                        </div>
+                    </form>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Registered Devices</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+<tbody>
+                                @forelse($students as $student)
+                                <tr>
+                                    <td>{{ $student->name }}</td>
+                                    <td>{{ $student->email }}</td>
+                                    <td>{{ $student->devices->where('is_verified', true)->count() }}</td>
+                                    <td>
+                                        <form action="{{ route('courses.remove-student', [$course, $student]) }}" method="POST"
+                                              onsubmit="return confirm('Are you sure you want to remove this student from the course?')">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="4" class="text-center">No students enrolled yet</td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {{ $students->links() }}
+                </div>
+            </div>
+        </div>
+    </div>
+    @endcan
+</div>
+@endsection
+
+// resources/views/courses/create.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4>Create New Course</h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ route('courses.store') }}">
+                        @csrf
+                        
+                        <div class="mb-3">
+                            <label for="code" class="form-label">Course Code</label>
+                            <input type="text" class="form-control @error('code') is-invalid @enderror" 
+                                id="code" name="code" value="{{ old('code') }}" required>
+                            @error('code')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Course Name</label>
+                            <input type="text" class="form-control @error('name') is-invalid @enderror" 
+                                id="name" name="name" value="{{ old('name') }}" required>
+                            @error('name')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <textarea class="form-control @error('description') is-invalid @enderror" 
+                                id="description" name="description" rows="3">{{ old('description') }}</textarea>
+                            @error('description')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="teacher_id" class="form-label">Teacher</label>
+                            <select class="form-select @error('teacher_id') is-invalid @enderror" 
+                                id="teacher_id" name="teacher_id" required>
+                                <option value="">Select Teacher</option>
+                                @foreach($teachers as $teacher)
+                                    <option value="{{ $teacher->id }}" {{ old('teacher_id') == $teacher->id ? 'selected' : '' }}>
+                                        {{ $teacher->name }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            @error('teacher_id')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">Create Course</button>
+                            <a href="{{ route('courses.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+// resources/views/courses/edit.blade.php
+@extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4>Edit Course</h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ route('courses.update', $course) }}">
+                        @csrf
+                        @method('PUT')
+                        
+                        <div class="mb-3">
+                            <label for="code" class="form-label">Course Code</label>
+                            <input type="text" class="form-control @error('code') is-invalid @enderror" 
+                                id="code" name="code" value="{{ old('code', $course->code) }}" required>
+                            @error('code')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Course Name</label>
+                            <input type="text" class="form-control @error('name') is-invalid @enderror" 
+                                id="name" name="name" value="{{ old('name', $course->name) }}" required>
+                            @error('name')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <textarea class="form-control @error('description') is-invalid @enderror" 
+                                id="description" name="description" rows="3">{{ old('description', $course->description) }}</textarea>
+                            @error('description')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="teacher_id" class="form-label">Teacher</label>
+                            <select class="form-select @error('teacher_id') is-invalid @enderror" 
+                                id="teacher_id" name="teacher_id" required>
+                                <option value="">Select Teacher</option>
+                                @foreach($teachers as $teacher)
+                                    <option value="{{ $teacher->id }}" 
+                                        {{ old('teacher_id', $course->teacher_id) == $teacher->id ? 'selected' : '' }}>
+                                        {{ $teacher->name }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            @error('teacher_id')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">Update Course</button>
+                            <a href="{{ route('courses.show', $course) }}" class="btn btn-outline-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endsection
+
+// ROUTES
+
+// routes/web.php
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\CourseController;
+use App\Http\Controllers\ClassSessionController;
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\UserDeviceController;
+
+Route::get('/', function () {
+    return redirect()->route('login');
+});
+
+Auth::routes();
+
+Route::middleware(['auth'])->group(function () {
+    // Dashboard
+    Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
+    
+    // Courses
+    Route::resource('courses', CourseController::class);
+    Route::post('/courses/{course}/add-student', [CourseController::class, 'addStudent'])->name('courses.add-student');
+    Route::delete('/courses/{course}/students/{student}', [CourseController::class, 'removeStudent'])->name('courses.remove-student');
+    
+    // Class Sessions
+    Route::get('/courses/{course}/sessions', [ClassSessionController::class, 'index'])->name('courses.sessions.index');
+    Route::get('/courses/{course}/sessions/create', [ClassSessionController::class, 'create'])->name('courses.sessions.create');
+    Route::post('/courses/{course}/sessions', [ClassSessionController::class, 'store'])->name('courses.sessions.store');
+    Route::get('/courses/{course}/sessions/{session}', [ClassSessionController::class, 'show'])->name('courses.sessions.show');
+    
+    // Attendance
+    Route::get('/attend/{secret}', [ClassSessionController::class, 'attend'])->name('attend');
+    Route::post('/sessions/{session}/attend', [AttendanceController::class, 'store'])->name('sessions.attend.store');
+    Route::get('/sessions/{session}/attendances', [AttendanceController::class, 'index'])->name('sessions.attendances.index');
+    
+    // User Devices
+    Route::get('/devices', [UserDeviceController::class, 'index'])->name('devices.index');
+    Route::post('/devices', [UserDeviceController::class, 'store'])->name('devices.store');
+    Route::delete('/devices/{device}', [UserDeviceController::class, 'destroy'])->name('devices.destroy');
+});
+
+// MIDDLEWARE
+
+// app/Http/Middleware/CheckRole.php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class CheckRole
+{
+    public function handle(Request $request, Closure $next, ...$roles)
+    {
+        if (!$request->user() || !in_array($request->user()->role, $roles)) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        return $next($request);
+    }
+}
+
+// POLICIES
+
+// app/Policies/CoursePolicy.php
+<?php
+
+namespace App\Policies;
+
+use App\Models\Course;
+use App\Models\User;
+use Illuminate\Auth\Access\HandlesAuthorization;
+
+class CoursePolicy
+{
+    use HandlesAuthorization;
+
+    public function view(User $user, Course $course)
+    {
+        return $user->role === 'admin' || 
+               $user->id === $course->teacher_id || 
+               $user->courses->contains($course->id);
+    }
+
+    public function update(User $user, Course $course)
+    {
+        return $user->role === 'admin' || $user->id === $course->teacher_id;
+    }
+
+    public function delete(User $user, Course $course)
+    {
+        return $user->role === 'admin';
+    }
+
+    public function attend(User $user, Course $course)
+    {
+        return $user->role === 'student' && $user->courses->contains($course->id);
+    }
+
+    public function viewAttendance(User $user, Course $course)
+    {
+        return $user->role === 'admin' || $user->id === $course->teacher_id;
+    }
+}
+
+// PROVIDERS
+
+// app/Providers/AuthServiceProvider.php
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use Illuminate\Support\Facades\Gate;
+use App\Models\Course;
+use App\Policies\CoursePolicy;
+
+class AuthServiceProvider extends ServiceProvider
+{
+    protected $policies = [
+        Course::class => CoursePolicy::class,
+    ];
+
+    public function boot()
+    {
+        $this->registerPolicies();
+    }
+}
+
+// SERVICE PROVIDERS
+
+// Update app/Http/Kernel.php
+/*
+protected $routeMiddleware = [
+    // ... existing middleware
+    'role' => \App\Http\Middleware\CheckRole::class,
+];
+*/
+
+// DATABASE SEEDERS
+
+// database/seeders/RolesSeeder.php
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+
+class RolesSeeder extends Seeder
+{
+    public function run()
+    {
+        // Create admin user
+        User::create([
+            'name' => 'Admin User',
+            'email' => 'admin@example.com',
+            'password' => Hash::make('password'),
+            'role' => 'admin',
+            'email_verified_at' => now(),
+        ]);
+
+        // Create teacher users
+        User::create([
+            'name' => 'Teacher One',
+            'email' => 'teacher1@example.com',
+            'password' => Hash::make('password'),
+            'role' => 'teacher',
+            'email_verified_at' => now(),
+        ]);
+
+        User::create([
+            'name' => 'Teacher Two',
+            'email' => 'teacher2@example.com',
+            'password' => Hash::make('password'),
+            'role' => 'teacher',
+            'email_verified_at' => now(),
+        ]);
+
+        // Create student users
+        for ($i = 1; $i <= 10; $i++) {
+            User::create([
+                'name' => 'Student ' . $i,
+                'email' => 'student' . $i . '@example.com',
+                'password' => Hash::make('password'),
+                'role' => 'student',
+                'email_verified_at' => now(),
+            ]);
+        }
+    }
+}
+
+// Update database/seeders/DatabaseSeeder.php
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+
+class DatabaseSeeder extends Seeder
+{
+    public function run()
+    {
+        $this->call([
+            RolesSeeder::class,
+        ]);
+    }
+}
+
+// SYSTEM SETUP AND DEPLOYMENT
+
+/*
+INSTALLATION STEPS
+
+1. Clone the repository or create a new Laravel project as described earlier
+
+2. Add the required migration to the User table to include the role field:
+   Create a new migration:
+   $ php artisan make:migration add_role_to_users_table
+
+   Edit the migration file:
+   ```php
+   public function up()
+   {
+       Schema::table('users', function (Blueprint $table) {
+           $table->string('role')->default('student');
+       });
+   }
+
+   public function down()
+   {
+       Schema::table('users', function (Blueprint $table) {
+           $table->dropColumn('role');
+       });
+   }
+   ```
+
+3. Create all the other migrations:
+   $ php artisan make:migration create_courses_table
+   $ php artisan make:migration create_class_sessions_table
+   $ php artisan make:migration create_student_course_table
+   $ php artisan make:migration create_attendances_table
+   $ php artisan make:migration create_user_devices_table
+
+4. Create all models:
+   $ php artisan make:model Course
+   $ php artisan make:model ClassSession
+   $ php artisan make:model Attendance
+   $ php artisan make:model UserDevice
+
+5. Create all controllers:
+   $ php artisan make:controller CourseController --resource
+   $ php artisan make:controller ClassSessionController
+   $ php artisan make:controller AttendanceController
+   $ php artisan make:controller UserDeviceController
+
+6. Create policy for Course:
+   $ php artisan make:policy CoursePolicy --model=Course
+
+7. Create middleware for role checking:
+   $ php artisan make:middleware CheckRole
+
+8. Create seeders:
+   $ php artisan make:seeder RolesSeeder
+
+9. Implement the code for all files as shown above
+
+10. Run migrations and seeders:
+    $ php artisan migrate
+    $ php artisan db:seed
+
+11. Configure your .env file with database credentials
+
+12. Run the development server:
+    $ php artisan serve
+
+13. Visit http://localhost:8000 in your browser
+*/
+
+// SECURITY ENHANCEMENTS
+
+// 1. Add CSRF protection to all forms (Laravel handles this)
+
+// 2. Add API token authentication for mobile usage:
+// Update app/Models/User.php:
+// use Laravel\Sanctum\HasApiTokens;
+
+// 3. Input validation in all controllers (as shown in the code above)
+
+// 4. Authorization policies (as shown in the code above)
+
+// 5. Limiting access to routes by role using middleware (as shown in the code above)
+
+// 6. Prevent MAC address spoofing by implementing additional device fingerprinting
+
+// MOBILE APP INTEGRATION (For future development)
+
+/*
+To extend this system to a mobile app:
+
+1. Create a Laravel API endpoint set using the following routes:
+
+Route::prefix('api')->middleware('auth:sanctum')->group(function () {
+    Route::get('/user', function (Request $request) {
+        return $request->user();
+    });
+    
+    Route::get('/courses', [ApiCourseController::class, 'index']);
+    Route::get('/courses/{course}', [ApiCourseController::class, 'show']);
+    Route::get('/courses/{course}/sessions', [ApiSessionController::class, 'index']);
+    Route::post('/sessions/{session}/attend', [ApiAttendanceController::class, 'store']);
+    Route::get('/devices', [ApiDeviceController::class, 'index']);
+    Route::post('/devices', [ApiDeviceController::class, 'store']);
+});
+
+2. Build mobile app using Flutter, React Native, or other mobile framework
+
+3. Implement QR code scanning in the mobile app
+
+4. Use the device's location services for accurate positioning
+
+5. Get the actual MAC address from the mobile device (possible on native apps)
+
+6. Implement push notifications for class reminders
+*/
+
+// This concludes the student attendance system implementation.
