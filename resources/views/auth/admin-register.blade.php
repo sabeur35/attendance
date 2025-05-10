@@ -5,10 +5,10 @@
     <div class="row justify-content-center">
         <div class="col-md-8">
             <div class="card">
-                <div class="card-header">{{ __('Student Registration') }}</div>
+                <div class="card-header">{{ __('Admin Registration') }}</div>
 
                 <div class="card-body">
-                    <form method="POST" action="{{ route('register') }}">
+                    <form method="POST" action="{{ route('admin.register') }}">
                         @csrf
 
                         <div class="row mb-3">
@@ -61,17 +61,32 @@
                             </div>
                         </div>
 
+                        <div class="row mb-3">
+                            <label for="admin-code" class="col-md-4 col-form-label text-md-end">{{ __('Admin Code') }}</label>
+
+                            <div class="col-md-6">
+                                <input id="admin-code" type="password" class="form-control @error('admin_code') is-invalid @enderror" name="admin_code" required>
+                                <small class="form-text text-muted">Enter the admin registration code</small>
+
+                                @error('admin_code')
+                                    <span class="invalid-feedback" role="alert">
+                                        <strong>{{ $message }}</strong>
+                                    </span>
+                                @enderror
+                            </div>
+                        </div>
+
                         <div class="row mb-0">
                             <div class="col-md-6 offset-md-4">
                                 <button type="submit" class="btn btn-primary">
-                                    {{ __('Register as Student') }}
+                                    {{ __('Register as Admin') }}
                                 </button>
                             </div>
                         </div>
 
                         <div class="row mt-3">
                             <div class="col-md-6 offset-md-4">
-                                <a href="{{ route('admin.register.form') }}" class="text-decoration-none">Register as Admin</a>
+                                <a href="{{ route('register') }}" class="text-decoration-none">Register as Student</a>
                             </div>
                         </div>
                     </form>

@@ -1,61 +1,138 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Attendance System
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## Overview
 
-## About Laravel
+The Attendance System is a comprehensive web application designed to manage course attendance for educational institutions. It provides a platform for administrators, teachers, and students to efficiently track and manage attendance records.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Features
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+### User Management
+- **Multiple User Roles**: Admin, Teacher, and Student roles with different permissions
+- **Dual Registration System**: Separate registration paths for administrators and students
+- **User Authentication**: Secure login and authentication system
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+### Course Management
+- **Course Creation**: Admins and teachers can create new courses
+- **Course Editing**: Update course details including name, code, and description
+- **Course Deletion**: Admins can delete courses and all associated data
+- **Student Enrollment**: Add or remove students from courses
 
-## Learning Laravel
+### Attendance Tracking
+- **Class Sessions**: Create and manage class sessions for each course
+- **Attendance Recording**: Record student attendance for each session
+- **Attendance Reports**: View and export attendance reports
+- **QR Code Integration**: Students can mark attendance via QR codes
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### Device Management
+- **Device Registration**: Students can register their devices for attendance
+- **Device Verification**: Ensure attendance is marked from registered devices
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+## Technology Stack
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- **Backend**: Laravel 12.10.0
+- **Frontend**: Blade templates with Bootstrap
+- **Database**: MySQL
+- **PHP Version**: 8.2.12
 
-## Laravel Sponsors
+## Installation
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+### Prerequisites
+- PHP 8.2 or higher
+- Composer
+- MySQL
+- Node.js and NPM (for asset compilation)
 
-### Premium Partners
+### Setup Instructions
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development/)**
-- **[Active Logic](https://activelogic.com)**
+1. **Clone the repository**
+   ```
+   git clone https://github.com/yourusername/attendance-system.git
+   cd attendance-system
+   ```
 
-## Contributing
+2. **Install PHP dependencies**
+   ```
+   composer install
+   ```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+3. **Install JavaScript dependencies**
+   ```
+   npm install
+   ```
 
-## Code of Conduct
+4. **Configure environment**
+   ```
+   cp .env.example .env
+   php artisan key:generate
+   ```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+5. **Configure database**
+   - Edit the `.env` file to set your database credentials
+   - Run the setup script: `./setup_database.bat` (Windows) or manually set up the database
 
-## Security Vulnerabilities
+6. **Run migrations**
+   ```
+   php artisan migrate --seed
+   ```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+7. **Compile assets**
+   ```
+   npm run dev
+   ```
+
+8. **Start the server**
+   ```
+   php artisan serve
+   ```
+
+## User Roles and Permissions
+
+### Admin
+- Create, edit, and delete courses
+- Manage all users
+- Access all system features
+- Register with admin code (default: admin123)
+
+### Teacher
+- Create and edit their own courses
+- Manage students in their courses
+- Create class sessions
+- View attendance reports
+
+### Student
+- View enrolled courses
+- Mark attendance for sessions
+- Register devices for attendance
+
+## Database Structure
+
+The system uses the following main tables:
+- `users`: Stores user information and roles
+- `courses`: Contains course details
+- `class_sessions`: Records individual class sessions
+- `student_course`: Junction table for student-course relationships
+- `attendances`: Stores attendance records
+- `user_devices`: Tracks registered student devices
+
+## Deployment
+
+For deployment to a production server, follow these steps:
+
+1. Set up your production environment variables in `.env.production`
+2. Run the deployment script: `./prepare_for_hostinger.bat` (Windows) or `./prepare_for_hostinger.sh` (Linux/Mac)
+3. Follow the instructions in `HOSTINGER_DEPLOYMENT.md` for specific hosting provider instructions
+
+## Additional Documentation
+
+- `MYSQL_SETUP.md`: Detailed MySQL setup instructions
+- `DEPLOYMENT_CHECKLIST.md`: Pre-deployment verification steps
+- `phpmyadmin_setup_guide.md`: Guide for setting up phpMyAdmin
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Author
+
+Sabeur - [GitHub Profile](https://github.com/sabeur35)
+

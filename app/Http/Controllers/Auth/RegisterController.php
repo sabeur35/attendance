@@ -61,12 +61,23 @@ class RegisterController extends Controller
      * @param  array  $data
      * @return \App\Models\User
      */
+    /**
+     * Show the application registration form.
+     *
+     * @return \Illuminate\View\View
+     */
+    public function showRegistrationForm()
+    {
+        return view('auth.register');
+    }
+
     protected function create(array $data)
     {
         return User::create([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
+            'role' => 'student', // Default role for regular registration
         ]);
     }
 }

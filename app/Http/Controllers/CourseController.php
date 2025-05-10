@@ -113,7 +113,14 @@ class CourseController extends Controller
     public function destroy(Course $course)
     {
         $this->authorize('delete', $course);
-
+        
+        // Detach all students from the course
+        $course->students()->detach();
+        
+        // Delete all associated sessions (if needed)
+        $course->sessions()->delete();
+        
+        // Now delete the course
         $course->delete();
 
         return redirect()->route('courses.index')

@@ -40,6 +40,13 @@
                                         @can('update', $course)
                                         <a href="{{ route('courses.edit', $course) }}" class="btn btn-sm btn-warning">Edit</a>
                                         @endcan
+                                        @can('delete', $course)
+                                        <form action="{{ route('courses.destroy', $course) }}" method="POST" class="d-inline">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this course?')">Delete</button>
+                                        </form>
+                                        @endcan
                                     </td>
                                 </tr>
                                 @empty

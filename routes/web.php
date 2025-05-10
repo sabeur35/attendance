@@ -12,6 +12,10 @@ Route::get('/', function () {
 
 Auth::routes();
 
+// Admin Registration Routes
+Route::get('/register/admin', [App\Http\Controllers\Auth\AdminRegisterController::class, 'showRegistrationForm'])->name('admin.register.form');
+Route::post('/register/admin', [App\Http\Controllers\Auth\AdminRegisterController::class, 'register'])->name('admin.register');
+
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
 
 Route::middleware(['auth'])->group(function () {
