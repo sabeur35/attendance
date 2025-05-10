@@ -1,0 +1,208 @@
+/* Modern Authentication Theme for Attendance System */
+:root {
+  --primary-color: #4361ee;
+  --secondary-color: #3f37c9;
+  --accent-color: #4895ef;
+  --success-color: #4cc9f0;
+  --light-color: #f8f9fa;
+  --dark-color: #212529;
+  --border-radius: 10px;
+  --box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+body.auth-page {
+  background: linear-gradient(135deg, #4cc9f0 0%, #4361ee 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  font-family: 'Poppins', sans-serif;
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 900px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  overflow: hidden;
+  position: relative;
+}
+
+.auth-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.auth-image {
+  flex: 1;
+  background-image: url('https://images.unsplash.com/photo-1523050854058-8df90110c9f1?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1350&q=80');
+  background-size: cover;
+  background-position: center;
+  min-height: 400px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-image-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(67, 97, 238, 0.6);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+  color: white;
+  text-align: center;
+}
+
+.auth-image-overlay h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.auth-image-overlay p {
+  font-size: 1.1rem;
+  max-width: 80%;
+}
+
+.auth-form {
+  flex: 1;
+  padding: 2.5rem;
+}
+
+.auth-header {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.auth-header h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--dark-color);
+}
+
+.auth-header p {
+  color: #6c757d;
+}
+
+.form-floating {
+  margin-bottom: 1.5rem;
+}
+
+.form-floating > .form-control {
+  padding: 1rem 0.75rem;
+  height: calc(3.5rem + 2px);
+  line-height: 1.25;
+  border-radius: var(--border-radius);
+  border: 1px solid #ced4da;
+}
+
+.form-floating > label {
+  padding: 1rem 0.75rem;
+}
+
+.btn-auth {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+  border-radius: var(--border-radius);
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  width: 100%;
+  transition: all 0.3s ease;
+}
+
+.btn-auth:hover {
+  background-color: var(--secondary-color);
+  border-color: var(--secondary-color);
+  transform: translateY(-2px);
+}
+
+.auth-footer {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.auth-footer a {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-footer a:hover {
+  text-decoration: underline;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.auth-divider span {
+  padding: 0 1rem;
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.form-check-input:checked {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.invalid-feedback {
+  font-size: 0.85rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .auth-image {
+    display: none;
+  }
+  
+  .auth-form {
+    padding: 2rem 1.5rem;
+  }
+}
+
+/* Animation for form elements */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 30px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.auth-form .form-floating,
+.auth-form .form-check,
+.auth-form .btn-auth,
+.auth-form .auth-footer {
+  animation: fadeInUp 0.5s ease-out forwards;
+  opacity: 0;
+}
+
+.auth-form .form-floating:nth-child(1) { animation-delay: 0.1s; }
+.auth-form .form-floating:nth-child(2) { animation-delay: 0.2s; }
+.auth-form .form-check { animation-delay: 0.3s; }
+.auth-form .btn-auth { animation-delay: 0.4s; }
+.auth-form .auth-footer { animation-delay: 0.5s; }
