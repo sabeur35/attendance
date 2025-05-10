@@ -52,6 +52,25 @@
                 <label for="password-confirm">{{ __('Confirm Password') }}</label>
             </div>
             
+            <div class="alert alert-success mb-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>Suggested Password:</strong> 
+                        <span id="password-display" class="user-select-all"></span>
+                    </div>
+                    <button id="copy-password-btn" class="btn btn-sm btn-outline-success">
+                        <i class="fas fa-copy"></i> Copy
+                    </button>
+                </div>
+                <small id="copy-feedback" class="d-none">Password copied!</small>
+            </div>
+            
+            <div class="mb-3">
+                <button id="generate-password-btn" class="btn btn-secondary w-100">
+                    <i class="fas fa-key me-2"></i>Generate New Password
+                </button>
+            </div>
+            
             <button type="submit" class="btn btn-auth">
                 <i class="fas fa-user-plus me-2"></i>{{ __('Register as Student') }}
             </button>
@@ -65,4 +84,8 @@
         </form>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+<script src="{{ asset('js/password-generator.js') }}"></script>
 @endsection
