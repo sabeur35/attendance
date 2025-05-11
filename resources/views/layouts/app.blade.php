@@ -21,6 +21,11 @@
                         <li class="nav-item">
                             <a class="nav-link" href="{{ route('courses.index') }}">Courses</a>
                         </li>
+                        @if(auth()->user()->role === 'teacher' || auth()->user()->role === 'admin')
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ route('sessions.select-course') }}">Create New Class Session</a>
+                            </li>
+                        @endif
                         @if(auth()->user()->role === 'student')
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ route('devices.index') }}">My Devices</a>

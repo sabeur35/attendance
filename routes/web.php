@@ -25,6 +25,7 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/courses/{course}/students/{student}', [CourseController::class, 'removeStudent'])->name('courses.remove-student');
 
     // Class Sessions
+    Route::get('/sessions/create', [ClassSessionController::class, 'selectCourse'])->name('sessions.select-course');
     Route::get('/courses/{course}/sessions', [ClassSessionController::class, 'index'])->name('courses.sessions.index');
     Route::get('/courses/{course}/sessions/create', [ClassSessionController::class, 'create'])->name('courses.sessions.create');
     Route::post('/courses/{course}/sessions', [ClassSessionController::class, 'store'])->name('courses.sessions.store');

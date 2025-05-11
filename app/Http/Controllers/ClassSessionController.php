@@ -13,6 +13,22 @@ class ClassSessionController extends Controller
         $this->middleware('auth');
         $this->middleware('role:teacher,admin')->except(['show', 'attend']);
     }
+    
+    public function selectCourse()
+    {
+        if (auth()->user()->role === 'teacher') {
+            $courses = auth()->user()->taughtCourses()->get();
+        } else {
+            $courses = Course::all();
+        }
+        
+        if ($courses->count() === 1) {
+            // If user has only one course, redirect directly to create session page
+            return redirect()->route('courses.sessions.create', $courses->first());
+        }
+        
+        return view('sessions.select-course', compact('courses'));
+    }
 
     public function index(Course $course)
     {
