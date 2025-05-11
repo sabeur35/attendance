@@ -23,7 +23,7 @@
                         </li>
                         @if(auth()->user()->role === 'teacher' || auth()->user()->role === 'admin')
                             <li class="nav-item">
-                                <a class="nav-link" href="{{ route('sessions.select-course') }}">Create New Class Session</a>
+                                <a class="nav-link" href="{{ route('sessions.select-course') }}">New Session</a>
                             </li>
                         @endif
                         @if(auth()->user()->role === 'student')
