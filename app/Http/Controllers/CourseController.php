@@ -16,7 +16,7 @@ class CourseController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         if (auth()->user()->role === 'student') {
             $courses = auth()->user()->courses()->paginate(10);
@@ -24,6 +24,13 @@ class CourseController extends Controller
             $courses = auth()->user()->taughtCourses()->paginate(10);
         } else {
             $courses = Course::paginate(10);
+        }
+
+        // Return JSON response if requested via AJAX
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'courses' => $courses
+            ]);
         }
 
         return view('courses.index', compact('courses'));
